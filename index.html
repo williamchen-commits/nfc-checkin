@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>NFC Check-in</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a0a; color: #fff;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 30px; }
+
+  .setup-box {
+    width: 100%; max-width: 400px; display: none;
+  }
+  .setup-box input {
+    width: 100%; padding: 16px; border-radius: 14px;
+    border: 2px solid #333; background: #1a1a1a; color: #fff;
+    font-size: 18px; outline: none; text-align: center;
+  }
+  .setup-box input:focus { border-color: #22cc66; }
+  .setup-box button {
+    width: 100%; margin-top: 12px; padding: 16px;
+    border: none; border-radius: 12px; background: #22cc66; color: #000;
+    font-size: 18px; font-weight: 700; cursor: pointer;
+  }
+  .setup-box button:active { background: #1ab354; }
+  .setup-box .hint {
+    color: #666; font-size: 12px; text-align: center; margin-top: 10px;
+  }
+
+  .checkin-box {
+    width: 100%; max-width: 400px; text-align: center; display: none;
+  }
+  .user-name {
+    font-size: 28px; font-weight: 700; margin-bottom: 28px;
+  }
+
+  .action-buttons {
+    display: flex; gap: 16px; margin-bottom: 30px;
+  }
+  .btn-action {
+    flex: 1; padding: 22px 0;
+    border: none; border-radius: 16px;
+    font-size: 20px; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-action:active { opacity: 0.75; }
+  .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-checkin { background: #22cc66; color: #000; }
+  .btn-checkout { background: #ff6b35; color: #fff; }
+
+  .result-icon {
+    font-size: 64px; margin-bottom: 12px; min-height: 70px;
+  }
+  .result-msg {
+    font-size: 18px; font-weight: 600; min-height: 26px;
+  }
+  .result-msg.ok { color: #22cc66; }
+  .result-msg.err { color: #cc4444; }
+  .result-msg.loading { color: #ffaa00; }
+
+  .change-user {
+    margin-top: 36px; color: #555; font-size: 12px;
+    text-decoration: underline; cursor: pointer;
+  }
+  .change-user:active { color: #888; }
+</style>
+</head>
+<body>
+
+<h1>NFC Check-in</h1>
+<p class="sub">請選擇簽到或簽退</p>
+
+<div class="setup-box" id="setup">
+  <input type="text" id="nameInput" placeholder="請輸入姓名">
+  <button id="saveBtn">儲存姓名</button>
+  <div class="hint">姓名將會記住，下次自動帶入</div>
+</div>
+
+<div class="checkin-box" id="checkin">
+  <div class="user-name" id="userName"></div>
+  <div class="action-buttons">
+    <button class="btn-action btn-checkin" id="btnCheckin">✅ 簽到</button>
+    <button class="btn-action btn-checkout" id="btnCheckout">👋 簽退</button>
+  </div>
+  <div class="result-icon" id="resultIcon"></div>
+  <div class="result-msg" id="resultMsg"></div>
+  <div class="change-user" id="changeBtn">更換姓名</div>
+</div>
+
+<script>
+var WEBHOOK_URL = 'https://webbermars.app.n8n.cloud/webhook/checkin';
+var KEY = 'nfc_checkin_name';
+
+function init() {
+  var name = localStorage.getItem(KEY);
+  if (name) {
+    showCheckin(name);
+  } else {
+    document.getElementById('setup').style.display = 'block';
+    document.getElementById('nameInput').focus();
+  }
+}
+
+document.getElementById('saveBtn').addEventListener('click', function() {
+  saveName();
+});
+
+document.getElementById('btnCheckin').addEventListener('click', function() {
+  var name = localStorage.getItem(KEY);
+  if (name) doAction(name, 'checkin');
+});
+
+document.getElementById('btnCheckout').addEventListener('click', function() {
+  var name = localStorage.getItem(KEY);
+  if (name) doAction(name, 'checkout');
+});
+
+document.getElementById('changeBtn').addEventListener('click', function() {
+  resetName();
+});
+
+function saveName() {
+  var name = document.getElementById('nameInput').value.trim();
+  if (!name) return;
+  localStorage.setItem(KEY, name);
+  document.getElementById('setup').style.display = 'none';
+  showCheckin(name);
+}
+
+function showCheckin(name) {
+  document.getElementById('checkin').style.display = 'block';
+  document.getElementById('userName').textContent = name;
+  document.getElementById('resultIcon').textContent = '';
+  document.getElementById('resultMsg').textContent = '';
+  document.getElementById('resultMsg').className = 'result-msg';
+}
+
+function resetName() {
+  localStorage.removeItem(KEY);
+  document.getElementById('checkin').style.display = 'none';
+  document.getElementById('setup').style.display = 'block';
+  document.getElementById('nameInput').value = '';
+  document.getElementById('nameInput').focus();
+}
+
+function setButtonsDisabled(disabled) {
+  document.getElementById('btnCheckin').disabled = disabled;
+  document.getElementById('btnCheckout').disabled = disabled;
+}
+
+async function doAction(name, action) {
+  var icon = document.getElementById('resultIcon');
+  var msg = document.getElementById('resultMsg');
+  icon.textContent = '';
+  msg.textContent = action === 'checkin' ? '簽到中...' : '簽退中...';
+  msg.className = 'result-msg loading';
+  setButtonsDisabled(true);
+
+  try {
+    var res = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, action: action })
+    });
+    var data = await res.json();
+    var m = data.message || '';
+
+    if (action === 'checkin') {
+      icon.textContent = '✅';
+    } else {
+      icon.textContent = '👋';
+    }
+
+    msg.textContent = m || (action === 'checkin' ? '簽到成功' : '簽退成功');
+    msg.className = 'result-msg ok';
+  } catch(e) {
+    icon.textContent = '❌';
+    msg.textContent = 'Connection failed';
+    msg.className = 'result-msg err';
+  }
+
+  setButtonsDisabled(false);
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('setup').style.display !== 'none') {
+    saveName();
+  }
+});
+
+init();
+</script>
+</body>
+</html>
