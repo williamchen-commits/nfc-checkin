@@ -70,6 +70,16 @@
     text-decoration: underline; cursor: pointer;
   }
   .change-user:active { color: #888; }
+
+  .location-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #555; margin-bottom: 20px;
+  }
+  .location-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #555;
+  }
+  .location-dot.ok { background: #22cc66; }
+  .location-dot.err { background: #cc4444; }
 </style>
 </head>
 <body>
@@ -85,6 +95,10 @@
 
 <div class="checkin-box" id="checkin">
   <div class="user-name" id="userName"></div>
+  <div class="location-badge" id="locationBadge">
+    <span class="location-dot" id="locationDot"></span>
+    <span id="locationText">定位確認中...</span>
+  </div>
   <div class="action-buttons">
     <button class="btn-action btn-checkin" id="btnCheckin">✅ 簽到</button>
     <button class="btn-action btn-checkout" id="btnCheckout">👋 簽退</button>
@@ -97,6 +111,54 @@
 <script>
 var WEBHOOK_URL = 'https://webbermars.app.n8n.cloud/webhook/checkin';
 var KEY = 'nfc_checkin_name';
+
+// Office GPS coordinates
+var OFFICE_LAT = 23.706839288281465;
+var OFFICE_LNG = 120.52899312045402;
+var MAX_DISTANCE_M = 100; // meters
+
+var locationOk = false;
+
+function calcDistance(lat1, lng1, lat2, lng2) {
+  var R = 6371000;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLng = (lng2 - lng1) * Math.PI / 180;
+  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng/2) * Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function checkLocation() {
+  var dot = document.getElementById('locationDot');
+  var text = document.getElementById('locationText');
+  if (!navigator.geolocation) {
+    dot.className = 'location-dot err';
+    text.textContent = '此裝置不支援定位';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      var dist = calcDistance(pos.coords.latitude, pos.coords.longitude, OFFICE_LAT, OFFICE_LNG);
+      var distM = Math.round(dist);
+      if (dist <= MAX_DISTANCE_M) {
+        locationOk = true;
+        dot.className = 'location-dot ok';
+        text.textContent = '已在公司範圍內（' + distM + 'm）';
+      } else {
+        locationOk = false;
+        dot.className = 'location-dot err';
+        text.textContent = '不在公司範圍（距離 ' + distM + 'm）';
+      }
+    },
+    function(err) {
+      locationOk = false;
+      dot.className = 'location-dot err';
+      text.textContent = err.code === 1 ? '請允許定位權限' : '定位失敗，請重試';
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+}
 
 function init() {
   var name = localStorage.getItem(KEY);
@@ -140,6 +202,7 @@ function showCheckin(name) {
   document.getElementById('resultIcon').textContent = '';
   document.getElementById('resultMsg').textContent = '';
   document.getElementById('resultMsg').className = 'result-msg';
+  checkLocation();
 }
 
 function resetName() {
@@ -158,6 +221,14 @@ function setButtonsDisabled(disabled) {
 async function doAction(name, action) {
   var icon = document.getElementById('resultIcon');
   var msg = document.getElementById('resultMsg');
+
+  if (!locationOk) {
+    icon.textContent = '📍';
+    msg.textContent = '需在公司範圍內才能打卡';
+    msg.className = 'result-msg err';
+    return;
+  }
+
   icon.textContent = '';
   msg.textContent = action === 'checkin' ? '簽到中...' : '簽退中...';
   msg.className = 'result-msg loading';
@@ -199,4 +270,3 @@ init();
 </script>
 </body>
 </html>
-
