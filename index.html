@@ -80,6 +80,12 @@
   }
   .location-dot.ok { background: #22cc66; }
   .location-dot.err { background: #cc4444; }
+  .btn-retry-loc {
+    display: none; margin-left: 6px;
+    padding: 2px 8px; border: 1px solid #444; border-radius: 8px;
+    background: #1a1a1a; color: #aaa; font-size: 11px; cursor: pointer;
+  }
+  .btn-retry-loc:active { background: #2a2a2a; }
 </style>
 </head>
 <body>
@@ -98,6 +104,7 @@
   <div class="location-badge" id="locationBadge">
     <span class="location-dot" id="locationDot"></span>
     <span id="locationText">定位確認中...</span>
+    <button class="btn-retry-loc" id="retryLocBtn" onclick="retryLocation()">重試</button>
   </div>
   <div class="action-buttons">
     <button class="btn-action btn-checkin" id="btnCheckin">✅ 簽到</button>
@@ -129,9 +136,16 @@ function calcDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+var permissionWatching = false;
+
 function checkLocation() {
   var dot = document.getElementById('locationDot');
   var text = document.getElementById('locationText');
+  var retryBtn = document.getElementById('retryLocBtn');
+  retryBtn.style.display = 'none';
+  dot.className = 'location-dot';
+  text.textContent = '定位確認中...';
+
   if (!navigator.geolocation) {
     dot.className = 'location-dot err';
     text.textContent = '此裝置不支援定位';
@@ -149,15 +163,43 @@ function checkLocation() {
         locationOk = false;
         dot.className = 'location-dot err';
         text.textContent = '不在公司範圍（距離 ' + distM + 'm）';
+        retryBtn.style.display = 'inline-block';
       }
     },
     function(err) {
       locationOk = false;
       dot.className = 'location-dot err';
-      text.textContent = err.code === 1 ? '請允許定位權限' : '定位失敗，請重試';
+      if (err.code === 1) {
+        // Watch for permission change automatically (iOS Safari 16+, Android Chrome)
+        watchPermission();
+        text.textContent = '請開啟定位權限，開啟後會自動更新';
+      } else {
+        text.textContent = '定位失敗，請點重試';
+      }
+      retryBtn.style.display = 'inline-block';
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );
+}
+
+function watchPermission() {
+  // Avoid duplicate listeners
+  if (permissionWatching) return;
+  if (!navigator.permissions) return;
+  navigator.permissions.query({ name: 'geolocation' }).then(function(status) {
+    permissionWatching = true;
+    status.onchange = function() {
+      if (status.state === 'granted') {
+        permissionWatching = false;
+        checkLocation();
+      }
+    };
+  }).catch(function() {});
+}
+
+function retryLocation() {
+  permissionWatching = false;
+  checkLocation();
 }
 
 function init() {
